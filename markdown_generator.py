@@ -25,12 +25,7 @@ def generate_markdown(report: DailyReport, config: AppConfig) -> Path:
 
 
 def generate_word(report: DailyReport, config: AppConfig) -> Path:
-    """Generate a native .docx Word document with styled text.
-
-    Earlier versions emitted HTML with a Word-like extension. This function now
-    creates a real Office Open XML document so Word/WPS opens a formatted report
-    directly as text, tables and headings.
-    """
+    """Generate a native .docx Word document with styled text."""
 
     path = config.daily_dir / f"{report.report_date.isoformat()}.docx"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -48,12 +43,7 @@ def generate_word(report: DailyReport, config: AppConfig) -> Path:
 
 
 def generate_docx_from_markdown(markdown_path: str | Path, config: AppConfig) -> Path:
-    """Rebuild a native DOCX from a UTF-8 Markdown report.
-
-    This is useful when a report markdown is correct but a document was created
-    through a console path with a legacy code page. The function reads the file
-    bytes as UTF-8 directly, so Chinese text does not pass through the terminal.
-    """
+    """Rebuild a native DOCX from a UTF-8 Markdown report."""
 
     source = Path(markdown_path)
     if not source.is_absolute():
@@ -157,7 +147,7 @@ def _add_cover(document: Document, report: DailyReport) -> None:
         ("生成时间", report.generated_at.strftime("%Y-%m-%d %H:%M:%S（北京时间）")),
         ("检索窗口", f"{report.window_start.strftime('%Y-%m-%d')} — {report.window_end.strftime('%Y-%m-%d')}"),
         ("检索与筛选", f"检索 {report.total_found} 篇；筛选 {report.total_filtered} 篇；AI成功 {report.total_success} 篇"),
-        ("本地文件", "Markdown 与 Word 文档已保存至 daily/ 目录"),
+        ("本地文件", "Markdown 与 Word 文档已保存至 docs/ 目录"),
     ]
     for row, (key, value) in zip(table.rows, rows, strict=True):
         row.cells[0].text = key
@@ -259,56 +249,35 @@ def _add_table_row(table, key: str, value: str) -> None:
 
 def _add_quote_block(document: Document, text: str) -> None:
     p = document.add_paragraph()
-    p.paragraph_format.left_indent = Inches(0.18)
-    p.paragraph_format.right_indent = Inches(0.08)
-    p.paragraph_format.space_before = Pt(4)
-    p.paragraph_format.space_after = Pt(10)
+    p.paragraph_format.left_indent = Inches(0.16)
+    p.paragraph_format.right_indent = Inches(0.16)
     run = p.add_run(text)
     run.italic = True
-    run.font.color.rgb = RGBColor(66, 82, 110)
-    _shade_paragraph(p, "EEF4FF")
+    run.font.color.rgb = RGBColor(89, 104, 130)
 
 
 def _add_text_block(document: Document, text: str) -> None:
-    cleaned = text.strip() or "摘要未说明。"
-    lines = [line.strip() for line in cleaned.replace("；", "；\n").splitlines() if line.strip()]
-    if not lines:
-        document.add_paragraph("摘要未说明。")
-        return
-    for line in lines:
-        if line.startswith(("-", "•", "1.", "2.", "3.", "①", "②", "③")):
-            document.add_paragraph(line.lstrip("-• ").strip(), style="List Bullet")
-        else:
-            document.add_paragraph(line)
-
-
-def _shade_paragraph(paragraph, fill: str) -> None:
-    p_pr = paragraph._p.get_or_add_pPr()
-    shd = OxmlElement("w:shd")
-    shd.set(qn("w:fill"), fill)
-    p_pr.append(shd)
+    text = (text or "摘要未说明").strip()
+    for paragraph in re.split(r"\n+", text):
+        paragraph = paragraph.strip()
+        if paragraph:
+            document.add_paragraph(paragraph)
 
 
 def _add_hyperlink(paragraph, text: str, url: str) -> None:
     part = paragraph.part
-    r_id = part.relate_to(
-        url,
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
-        is_external=True,
-    )
+    r_id = part.relate_to(url, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", is_external=True)
     hyperlink = OxmlElement("w:hyperlink")
     hyperlink.set(qn("r:id"), r_id)
-
     new_run = OxmlElement("w:r")
     r_pr = OxmlElement("w:rPr")
     color = OxmlElement("w:color")
     color.set(qn("w:val"), "0563C1")
-    r_pr.append(color)
     underline = OxmlElement("w:u")
     underline.set(qn("w:val"), "single")
+    r_pr.append(color)
     r_pr.append(underline)
     new_run.append(r_pr)
-
     text_element = OxmlElement("w:t")
     text_element.text = text
     new_run.append(text_element)
@@ -316,105 +285,8 @@ def _add_hyperlink(paragraph, text: str, url: str) -> None:
     paragraph._p.append(hyperlink)
 
 
-def _strip_markdown(text: str) -> str:
-    cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
-    cleaned = re.sub(r"\[(.*?)\]\((.*?)\)", r"\1（\2）", cleaned)
-    cleaned = re.sub(r"<[^>]+>", "", cleaned)
-    return cleaned.strip()
-
-
-def build_markdown(report: DailyReport) -> str:
-    lines: list[str] = []
-    lines.append(f"# 每日SSCI文献简报（{report.report_date.isoformat()}）")
-    lines.append("")
-    lines.append(f"> 生成时间：{report.generated_at.strftime('%Y-%m-%d %H:%M:%S')}  ")
-    lines.append(f"> 检索窗口：{report.window_start.strftime('%Y-%m-%d %H:%M')} — {report.window_end.strftime('%Y-%m-%d %H:%M')}（北京时间）")
-    if report.notice:
-        lines.append(f"> ⚠️ {report.notice}")
-    lines.append("")
-    lines.append("## 一、今日研究亮点总结")
-    lines.append("")
-    lines.append(report.hotspot_summary.strip() or "今日未生成热点总结。")
-    lines.append("")
-    lines.append("## 目录")
-    lines.append("")
-    if report.items:
-        for index, item in enumerate(report.items, start=1):
-            lines.append(f"{index}. [{item.paper.title} / {item.summary.chinese_title}](#paper-{index})")
-    else:
-        lines.append("- 今日未筛选到符合条件的论文。")
-    lines.append("")
-    lines.append("## 二、文献摘要")
-    lines.append("")
-    for index, item in enumerate(report.items, start=1):
-        lines.extend(_item_markdown(index, item))
-    lines.append("")
-    lines.append("## 运行统计")
-    lines.append("")
-    lines.append(f"- 检索数量：{report.total_found}")
-    lines.append(f"- 筛选成功：{report.total_filtered}")
-    lines.append(f"- AI成功：{report.total_success}")
-    lines.append(f"- 失败数量：{report.total_failed}")
-    lines.append(f"- API耗时：{report.api_elapsed_seconds:.2f} 秒")
-    lines.append("")
-    return "\n".join(lines)
-
-
-def _item_markdown(index: int, item: ReportItem) -> list[str]:
-    paper = item.paper
-    summary = item.summary
-    doi_or_url = paper.url or (f"https://doi.org/{paper.doi}" if paper.doi else "")
-    journal_impact = summary.journal_impact or _journal_metadata_text(paper)
-    lines = [
-        f"### <a id=\"paper-{index}\"></a>{index}. {paper.title} / {summary.chinese_title}",
-        "",
-        f"- **标题**：{paper.title} / {summary.chinese_title}",
-        f"- **作者**：{summary.authors_text or (', '.join(paper.authors[:8]) if paper.authors else '摘要未说明')}",
-        f"- **期刊及影响因子**：{journal_impact}",
-        f"- **JIF/影响因子**：{paper.impact_factor or '白名单未提供'}",
-        f"- **JCR分区**：{paper.quartile or '白名单未提供'}",
-        f"- **CiteScore**：{paper.citescore or '白名单未提供'}",
-        f"- **出版社**：{paper.publisher or '白名单未提供'}",
-        f"- **卷期/DOI**：{summary.volume_issue_doi or paper.doi or '摘要未说明'}",
-        f"- **在线发表时间**：{summary.online_date or format_date_cn(paper.published_date)}",
-        f"- **SSCI分类**：{'；'.join(paper.ssci_categories) if paper.ssci_categories else 'SSCI白名单匹配；分类未提供'}",
-    ]
-    if doi_or_url:
-        lines.append(f"- **论文链接**：[{doi_or_url}]({doi_or_url})")
-    lines.extend(
-        [
-            "",
-            "#### 研究摘要",
-            summary.research_abstract,
-            "",
-            "#### 研究主要内容",
-            summary.main_content,
-            "",
-            "#### 研究论点",
-            summary.argument,
-            "",
-            "#### 研究问题",
-            summary.research_question,
-            "",
-            "#### 研究方法",
-            summary.methods,
-            "",
-            "#### 主要发现",
-            summary.findings,
-            "",
-            "#### 对教师教育研究的启示",
-            summary.implications_teacher_education,
-            "",
-            "#### APA引用格式",
-            summary.apa_citation,
-            "",
-        ]
-    )
-    return lines
-
-
 def _journal_metadata_text(paper: Paper) -> str:
-    parts = [paper.journal or "未知期刊"]
+    parts = [paper.journal or "摘要未说明"]
     if paper.impact_factor:
         parts.append(f"JIF/影响因子：{paper.impact_factor}")
     if paper.quartile:
@@ -423,6 +295,89 @@ def _journal_metadata_text(paper: Paper) -> str:
         parts.append(f"CiteScore：{paper.citescore}")
     if paper.publisher:
         parts.append(f"出版社：{paper.publisher}")
-    if len(parts) == 1:
-        parts.append("影响因子/分区：白名单未提供")
     return "；".join(parts)
+
+
+def build_markdown(report: DailyReport) -> str:
+    lines: list[str] = []
+    lines.append(f"# 每日SSCI文献简报｜{report.report_date.isoformat()}")
+    lines.append("")
+    lines.append(f"生成时间：{report.generated_at.strftime('%Y-%m-%d %H:%M:%S（北京时间）')}")
+    lines.append(f"检索窗口：{report.window_start.strftime('%Y-%m-%d')} — {report.window_end.strftime('%Y-%m-%d')}")
+    lines.append(f"检索 {report.total_found} 篇；筛选 {report.total_filtered} 篇；AI成功 {report.total_success} 篇；失败 {report.total_failed} 篇。")
+    lines.append("")
+    if report.notice:
+        lines.append(f"> {report.notice}")
+        lines.append("")
+    lines.append("## 今日研究亮点总结")
+    lines.append("")
+    lines.append(report.hotspot_summary.strip() or "今日未生成文献亮点总结。")
+    lines.append("")
+    lines.append("## 文献目录")
+    lines.append("")
+    if not report.items:
+        lines.append("今日未筛选到符合条件的论文。")
+        lines.append("")
+        return "\n".join(lines)
+    for index, item in enumerate(report.items, start=1):
+        anchor = f"paper-{index}"
+        lines.append(f"{index}. [{item.summary.chinese_title}](#{anchor})｜{item.paper.journal or '未知期刊'}｜{format_date_cn(item.paper.published_date)}")
+    lines.append("")
+    lines.append("## 文献摘要")
+    lines.append("")
+    for index, item in enumerate(report.items, start=1):
+        lines.extend(_paper_markdown(index, item))
+    lines.append("## 运行统计")
+    lines.append("")
+    lines.append(f"- 检索数量：{report.total_found}")
+    lines.append(f"- 筛选数量：{report.total_filtered}")
+    lines.append(f"- AI成功数量：{report.total_success}")
+    lines.append(f"- 失败数量：{report.total_failed}")
+    lines.append(f"- API耗时：{report.api_elapsed_seconds:.2f} 秒")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _paper_markdown(index: int, item: ReportItem) -> list[str]:
+    paper = item.paper
+    summary = item.summary
+    anchor = f"paper-{index}"
+    lines = [
+        f"### <a id=\"{anchor}\"></a>{index}. {paper.title} / {summary.chinese_title}",
+        "",
+        f"- 作者：{summary.authors_text or (', '.join(paper.authors[:8]) if paper.authors else '摘要未说明')}",
+        f"- 期刊及影响因子：{summary.journal_impact or _journal_metadata_text(paper)}",
+        f"- JIF/影响因子：{paper.impact_factor or '白名单未提供'}",
+        f"- JCR分区：{paper.quartile or '白名单未提供'}",
+        f"- CiteScore：{paper.citescore or '白名单未提供'}",
+        f"- 出版社：{paper.publisher or '白名单未提供'}",
+        f"- 卷期/DOI：{summary.volume_issue_doi or paper.doi or '摘要未说明'}",
+        f"- 在线发表时间：{summary.online_date or format_date_cn(paper.published_date)}",
+        f"- SSCI分类：{'；'.join(paper.ssci_categories) if paper.ssci_categories else 'SSCI白名单匹配；分类未提供'}",
+    ]
+    link = paper.url or (f"https://doi.org/{paper.doi}" if paper.doi else "")
+    if link:
+        lines.append(f"- 论文链接：{link}")
+    lines.append("")
+    sections = [
+        ("研究摘要", summary.research_abstract),
+        ("研究主要内容", summary.main_content),
+        ("研究论点", summary.argument),
+        ("研究问题", summary.research_question),
+        ("研究方法", summary.methods),
+        ("主要发现", summary.findings),
+        ("对教师教育研究的启示", summary.implications_teacher_education),
+        ("APA引用格式", summary.apa_citation),
+    ]
+    for heading, text in sections:
+        lines.append(f"#### {heading}")
+        lines.append("")
+        lines.append((text or "摘要未说明").strip())
+        lines.append("")
+    return lines
+
+
+def _strip_markdown(text: str) -> str:
+    text = re.sub(r"\[(.*?)\]\((.*?)\)", r"\1", text)
+    text = re.sub(r"[*_`#>]", "", text)
+    return text.strip()
