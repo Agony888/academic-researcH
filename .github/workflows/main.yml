@@ -35,6 +35,10 @@ jobs:
         env:
           OPENAI_BASE_URL: https://api.deepseek.com
           OPENAI_MODEL: deepseek-v4-flash
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_AUTH_CODE: ${{ secrets.SMTP_AUTH_CODE }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
           SMTP_SERVER: smtp.163.com
           MAIL_FROM_NAME: Academic Research Daily
           MAIL_ENABLED: "true"
@@ -56,6 +60,10 @@ jobs:
         env:
           OPENAI_BASE_URL: https://api.deepseek.com
           OPENAI_MODEL: deepseek-v4-flash
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_AUTH_CODE: ${{ secrets.SMTP_AUTH_CODE }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
           SMTP_SERVER: smtp.163.com
           MAIL_FROM_NAME: Academic Research Daily
           MAIL_ENABLED: "true"
