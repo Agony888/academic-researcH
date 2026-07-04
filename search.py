@@ -130,16 +130,16 @@ def search_recent_papers(
         try:
             papers.extend(_search_openalex(config, session, headers, query, window_start, window_end, logger))
         except Exception as exc:  # noqa: BLE001 - keep daily job alive
-            logger.exception("OpenAlex search failed for query=%s: %s", query, exc)
+            logger.warning("OpenAlex search failed for query=%s: %s", query, exc)
         try:
             papers.extend(_search_crossref(config, session, headers, query, window_start, window_end, logger))
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Crossref search failed for query=%s: %s", query, exc)
+            logger.warning("Crossref search failed for query=%s: %s", query, exc)
 
     unique = unique_by_identity(papers)
     unique.sort(key=lambda p: p.published_date or date.min, reverse=True)
     logger.info("检索数量 total=%s unique=%s", len(papers), len(unique))
-    return unique[: max(config.max_papers * 150, 500)]
+    return unique[: max(config.max_papers * 40, 120)]
 
 
 def _search_openalex(
@@ -162,7 +162,7 @@ def _search_openalex(
             ]
         ),
         "sort": "publication_date:desc",
-        "per-page": min(100, max(50, config.max_papers * 20)),
+        "per-page": min(25, max(10, config.max_papers * 5)),
         "mailto": "agony2023@qq.com",
     }
     if config.openalex_api_key:
@@ -173,7 +173,7 @@ def _search_openalex(
         params=params,
         headers=headers,
         timeout=config.request_timeout_seconds,
-        retries=config.request_retries,
+        retries=1,
     )
     results = data.get("results", [])
     papers = [_openalex_to_paper(item) for item in results if isinstance(item, dict)]
@@ -251,7 +251,7 @@ def _search_crossref(
         ),
         "sort": "published",
         "order": "desc",
-        "rows": min(100, max(50, config.max_papers * 20)),
+        "rows": min(25, max(10, config.max_papers * 5)),
         "mailto": "agony2023@qq.com",
     }
     data = request_json(
@@ -260,7 +260,7 @@ def _search_crossref(
         params=params,
         headers=headers,
         timeout=config.request_timeout_seconds,
-        retries=config.request_retries,
+        retries=1,
     )
     items = (data.get("message") or {}).get("items") or []
     papers = [_crossref_to_paper(item) for item in items if isinstance(item, dict)]
