@@ -114,7 +114,7 @@ def load_config(validate: bool = True) -> AppConfig:
     load_dotenv(encoding="utf-8-sig")
 
     root = Path(__file__).resolve().parent
-    daily_dir = root / os.getenv("DAILY_DIR", "daily")
+    daily_dir = root / os.getenv("DAILY_DIR", "docs")
     logs_dir = root / os.getenv("LOGS_DIR", "logs")
     template_dir = root / os.getenv("TEMPLATE_DIR", "templates")
 
