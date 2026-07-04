@@ -24,6 +24,8 @@ from utils import (
 
 OPENALEX_ENDPOINT = "https://api.openalex.org/works"
 CROSSREF_ENDPOINT = "https://api.crossref.org/works"
+PER_QUERY_RESULTS = 60
+CANDIDATE_POOL_SIZE = 500
 
 
 SEARCH_QUERIES: tuple[str, ...] = (
@@ -138,8 +140,8 @@ def search_recent_papers(
 
     unique = unique_by_identity(papers)
     unique.sort(key=lambda p: p.published_date or date.min, reverse=True)
-    logger.info("检索数量 total=%s unique=%s", len(papers), len(unique))
-    return unique[: max(config.max_papers * 40, 120)]
+    logger.info("检索数量 total=%s unique=%s candidate_pool=%s", len(papers), len(unique), CANDIDATE_POOL_SIZE)
+    return unique[:CANDIDATE_POOL_SIZE]
 
 
 def _search_openalex(
@@ -162,7 +164,7 @@ def _search_openalex(
             ]
         ),
         "sort": "publication_date:desc",
-        "per-page": min(25, max(10, config.max_papers * 5)),
+        "per-page": PER_QUERY_RESULTS,
         "mailto": "agony2023@qq.com",
     }
     if config.openalex_api_key:
@@ -251,7 +253,7 @@ def _search_crossref(
         ),
         "sort": "published",
         "order": "desc",
-        "rows": min(25, max(10, config.max_papers * 5)),
+        "rows": PER_QUERY_RESULTS,
         "mailto": "agony2023@qq.com",
     }
     data = request_json(
