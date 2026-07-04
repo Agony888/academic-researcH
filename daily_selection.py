@@ -20,7 +20,7 @@ from utils import Paper
 
 LATEST_TARGET = 2
 RELEVANCE_TARGET = 3
-DAILY_SEARCH_QUERY_LIMIT = 12
+DAILY_SEARCH_QUERY_LIMIT = 35
 
 SUBJECT_AI_SEARCH_QUERIES: tuple[str, ...] = (
     "AI assisted teaching education",
