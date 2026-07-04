@@ -20,6 +20,7 @@ from utils import Paper
 
 LATEST_TARGET = 2
 RELEVANCE_TARGET = 3
+DAILY_SEARCH_QUERY_LIMIT = 12
 
 SUBJECT_AI_SEARCH_QUERIES: tuple[str, ...] = (
     "AI assisted teaching education",
@@ -161,11 +162,10 @@ STAGE_TERMS: tuple[str, ...] = (
 
 
 def configure_daily_search_queries() -> None:
-    """Prepend subject-AI teaching queries to the shared search query list."""
+    """Prepend a bounded set of high-priority subject-AI teaching queries."""
 
-    search_module.SEARCH_QUERIES = tuple(
-        dict.fromkeys(SUBJECT_AI_SEARCH_QUERIES + search_module.SEARCH_QUERIES)
-    )
+    prioritized = tuple(dict.fromkeys(SUBJECT_AI_SEARCH_QUERIES + search_module.SEARCH_QUERIES))
+    search_module.SEARCH_QUERIES = prioritized[:DAILY_SEARCH_QUERY_LIMIT]
 
 
 def select_daily_papers(
