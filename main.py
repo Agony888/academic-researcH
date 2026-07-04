@@ -28,13 +28,40 @@ def run_daily_job(*, send_email: bool | None = None) -> DailyReport:
     tz = ZoneInfo(config.timezone)
     now = datetime.now(tz)
     window_end = now
+    report_date = now.date()
     report_window_start = now - timedelta(days=365 * config.fallback_search_years)
+
+    existing_md = config.daily_dir / f"{report_date.isoformat()}.md"
+    existing_docx = config.daily_dir / f"{report_date.isoformat()}.docx"
+    if existing_md.exists() and existing_docx.exists():
+        logger.info(
+            "今日报告已存在，跳过本次任务 markdown=%s word=%s",
+            existing_md,
+            existing_docx,
+        )
+        return DailyReport(
+            report_date=report_date,
+            generated_at=now,
+            window_start=report_window_start,
+            window_end=window_end,
+            total_found=0,
+            total_filtered=0,
+            total_success=0,
+            total_failed=0,
+            api_elapsed_seconds=0.0,
+            hotspot_summary="今日报告已存在，已跳过本次任务。",
+            items=[],
+            markdown_path=existing_md,
+            word_path=existing_docx,
+            notice="今日报告已存在，已跳过本次任务。",
+        )
 
     configure_daily_search_queries()
     logger.info(
-        "Academic Daily Scholar started report_window_start=%s window_end=%s selection_strategy=2_latest_plus_3_ai_teaching_relevance",
+        "Academic Daily Scholar started report_window_start=%s window_end=%s selection_strategy=2_latest_plus_3_ai_teaching_relevance output_dir=%s",
         report_window_start,
         window_end,
+        config.daily_dir,
     )
     whitelist = load_ssci_whitelist(config.ssci_whitelist_path, logger)
     all_papers = search_recent_papers(config, report_window_start, window_end, logger)
@@ -50,7 +77,7 @@ def run_daily_job(*, send_email: bool | None = None) -> DailyReport:
     items, hotspot, api_elapsed, failures = summarize_papers(selected, config, logger)
 
     report = DailyReport(
-        report_date=now.date(),
+        report_date=report_date,
         generated_at=now,
         window_start=report_window_start,
         window_end=window_end,
@@ -73,6 +100,11 @@ def run_daily_job(*, send_email: bool | None = None) -> DailyReport:
         word_path,
         word_path.exists(),
     )
+
+    if selected and md_path.exists() and word_path.exists():
+        mark_papers_seen(config.seen_state_path, selected)
+        logger.info("报告文件已生成，已记录 seen 文献数量=%s", len(selected))
+
     html = generate_html(report, config)
 
     should_send = config.mail_enabled if send_email is None else send_email
@@ -93,8 +125,6 @@ def run_daily_job(*, send_email: bool | None = None) -> DailyReport:
         report.total_failed,
         report.api_elapsed_seconds,
     )
-    if sent_success or not config.mail_enabled:
-        mark_papers_seen(config.seen_state_path, selected)
     return report
 
 
@@ -118,7 +148,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     subparsers.add_parser("serve", help="Run local schedule loop")
     subparsers.add_parser("check-config", help="Validate environment configuration")
     rebuild_docx = subparsers.add_parser("rebuild-docx", help="Rebuild native DOCX from a generated UTF-8 markdown report")
-    rebuild_docx.add_argument("markdown_path", help="Markdown file path, for example daily/2026-06-29.md")
+    rebuild_docx.add_argument("markdown_path", help="Markdown file path, for example docs/2026-06-29.md")
     return parser.parse_args(argv)
 
 
@@ -133,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         elif command == "check-config":
             config = load_config(validate=True)
             logger = setup_logger(config.logs_dir)
-            logger.info("配置检查通过 openai_base_url=%s model=%s mail_to=%s", config.openai_base_url, config.openai_model, config.mail_to)
+            logger.info("配置检查通过 openai_base_url=%s model=%s mail_to=%s output_dir=%s", config.openai_base_url, config.openai_model, config.mail_to, config.daily_dir)
         elif command == "rebuild-docx":
             from markdown_generator import generate_docx_from_markdown
 
