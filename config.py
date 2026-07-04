@@ -14,6 +14,9 @@ from dotenv import load_dotenv
 
 FilterMode = Literal["off", "prefer", "strict"]
 
+DEFAULT_AI_BASE_URL = "https://api.deepseek.com"
+DEFAULT_AI_MODEL = "deepseek-v4-flash"
+
 
 class ConfigError(RuntimeError):
     """Raised when required runtime configuration is missing or invalid."""
@@ -88,17 +91,14 @@ def _normalize_openai_api_key(value: str) -> str:
 
 
 def _normalize_openai_base_url(value: str) -> str:
-    """Normalize OpenAI-compatible base URL for the OpenAI SDK.
-
-    The OpenAI Python SDK expects base_url to point at the API root that owns
-    /chat/completions. Many gateways show users the web root, so when only a
-    scheme + host is provided we append /v1 automatically.
-    """
+    """Normalize the OpenAI-compatible base URL used by the OpenAI SDK."""
 
     text = value.strip().rstrip("/")
     if not text:
         return ""
     parsed = urlparse(text)
+    if "deepseek.com" in parsed.netloc.lower():
+        return text
     if parsed.scheme and parsed.netloc and parsed.path in {"", "/"}:
         return text + "/v1"
     return text
@@ -130,8 +130,8 @@ def load_config(validate: bool = True) -> AppConfig:
     config = AppConfig(
         openalex_api_key=os.getenv("OPENALEX_API_KEY", "").strip(),
         openai_api_key=_normalize_openai_api_key(os.getenv("OPENAI_API_KEY", "")),
-        openai_base_url=_normalize_openai_base_url(os.getenv("OPENAI_BASE_URL", "")),
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip(),
+        openai_base_url=_normalize_openai_base_url(os.getenv("OPENAI_BASE_URL", DEFAULT_AI_BASE_URL)),
+        openai_model=os.getenv("OPENAI_MODEL", DEFAULT_AI_MODEL).strip(),
         smtp_server=(os.getenv("SMTP_SERVER") or "smtp.163.com").strip(),
         smtp_port=_env_int("SMTP_PORT", 465),
         smtp_user=(os.getenv("SMTP_EMAIL") or os.getenv("SMTP_USER") or "").strip(),
