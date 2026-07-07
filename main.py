@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import schedule
 
+import search as search_module
 from config import ConfigError, load_config
 from daily_selection import configure_daily_search_queries, select_daily_papers as filter_papers
 from filter import load_ssci_whitelist, mark_papers_seen
@@ -57,11 +58,17 @@ def run_daily_job(*, send_email: bool | None = None) -> DailyReport:
         )
 
     configure_daily_search_queries()
+    if hasattr(search_module, "PER_QUERY_RESULTS"):
+        search_module.PER_QUERY_RESULTS = 60
+    if hasattr(search_module, "CANDIDATE_POOL_SIZE"):
+        search_module.CANDIDATE_POOL_SIZE = 750
     logger.info(
-        "Academic Daily Scholar started report_window_start=%s window_end=%s selection_strategy=2_latest_plus_3_ai_teaching_relevance output_dir=%s",
+        "Academic Daily Scholar started report_window_start=%s window_end=%s selection_strategy=2_latest_plus_3_ai_teaching_relevance output_dir=%s per_query_results=%s candidate_pool=%s",
         report_window_start,
         window_end,
         config.daily_dir,
+        getattr(search_module, "PER_QUERY_RESULTS", "default"),
+        getattr(search_module, "CANDIDATE_POOL_SIZE", "default"),
     )
     whitelist = load_ssci_whitelist(config.ssci_whitelist_path, logger)
     all_papers = search_recent_papers(config, report_window_start, window_end, logger)
