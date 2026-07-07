@@ -1,28 +1,24 @@
-"""Selection strategy for the main Academic Daily Scholar workflow.
+"""AI-education literature search and selection logic.
 
-The main daily report should contain a fixed mix:
-- 2 newest eligible papers from the three-year search pool.
-- 3 papers from the same three-year pool that are closest to AI-assisted teaching,
-  subject teaching with AI, and teacher digital/AI/data literacy.
-
-This module intentionally keeps publication date as the primary criterion only
-for the first two slots. The remaining slots are ranked by topic relevance.
+This module mirrors the ai-education-daily workflow in academic-daily-scholar:
+- prepend AI-education priority queries to the normal search query list;
+- keep a three-year search window through runtime configuration;
+- filter papers by AI teaching, subject-specific AI integration, teacher literacy,
+  teacher education/training, and digital-transformation teacher-role themes;
+- rank selected papers by topic relevance first, not by publication date first.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 
 import filter as paper_filter
 import search as search_module
 from config import AppConfig
 from utils import Paper
 
-LATEST_TARGET = 2
-RELEVANCE_TARGET = 3
-DAILY_SEARCH_QUERY_LIMIT = 35
-
-SUBJECT_AI_SEARCH_QUERIES: tuple[str, ...] = (
+AI_PRIORITY_SEARCH_QUERIES: tuple[str, ...] = (
     "artificial intelligence teaching education",
     "AI teaching education",
     "AI assisted teaching",
@@ -126,104 +122,11 @@ SUBJECT_AI_SEARCH_QUERIES: tuple[str, ...] = (
     "teacher agency artificial intelligence school education",
 )
 
-AI_TERMS: tuple[str, ...] = (
-    "artificial intelligence",
-    "ai in education",
-    "generative ai",
-    "genai",
-    "chatgpt",
-    "large language model",
-    "large language models",
-    "llm",
-    "llms",
-    "ai-assisted",
-    "ai assisted",
-    "ai-supported",
-    "ai supported",
-    "intelligent tutoring",
-    "adaptive learning",
-    "learning analytics",
-    "educational data mining",
-    "automated feedback",
-)
-
-TEACHING_TERMS: tuple[str, ...] = (
-    "teaching",
-    "instruction",
-    "classroom",
-    "lesson planning",
-    "instructional design",
-    "teaching design",
-    "curriculum",
-    "learning",
-    "assessment",
-    "feedback",
-    "tutoring",
-    "pedagogy",
-    "pedagogical",
-)
-
-SUBJECT_TERMS: tuple[str, ...] = (
-    "mathematics",
-    "math",
-    "english",
-    "efl",
-    "esl",
-    "reading",
-    "writing",
-    "literacy",
-    "language arts",
-    "language education",
-    "chinese language",
-    "chinese writing",
-    "native language",
-    "first language",
-    "mother tongue",
-    "science",
-    "stem",
-    "subject teaching",
-    "disciplinary",
-)
-
-TEACHER_LITERACY_TERMS: tuple[str, ...] = (
-    "teacher digital literacy",
-    "teacher digital competence",
-    "teacher ai literacy",
-    "teacher artificial intelligence literacy",
-    "teacher intelligent literacy",
-    "teacher data literacy",
-    "digital literacy",
-    "digital competence",
-    "ai literacy",
-    "artificial intelligence literacy",
-    "intelligent literacy",
-    "data literacy",
-)
-
-STAGE_TERMS: tuple[str, ...] = (
-    "preschool",
-    "early childhood",
-    "kindergarten",
-    "primary school",
-    "primary education",
-    "elementary school",
-    "elementary education",
-    "junior high",
-    "middle school",
-    "lower secondary",
-    "basic education",
-    "compulsory education",
-    "k-12",
-    "k12",
-    "school education",
-)
-
 
 def configure_daily_search_queries() -> None:
-    """Prepend a bounded set of high-priority subject-AI teaching queries."""
+    """Use the same priority-query composition as ai-education-daily."""
 
-    prioritized = tuple(dict.fromkeys(SUBJECT_AI_SEARCH_QUERIES + search_module.SEARCH_QUERIES))
-    search_module.SEARCH_QUERIES = prioritized[:DAILY_SEARCH_QUERY_LIMIT]
+    search_module.SEARCH_QUERIES = tuple(dict.fromkeys(AI_PRIORITY_SEARCH_QUERIES + search_module.SEARCH_QUERIES))
 
 
 def select_daily_papers(
@@ -234,62 +137,16 @@ def select_daily_papers(
     exclude_identities: set[str] | None = None,
     ignore_seen: bool = False,
 ) -> list[Paper]:
-    """Select 2 newest papers and 3 most AI-teaching-relevant papers."""
+    """Filter topic papers and select by relevance rather than newest-first ranking."""
 
     whitelist = whitelist or paper_filter.load_ssci_whitelist(config.ssci_whitelist_path, logger)
-    candidates = _eligible_candidates(
-        papers,
-        config,
-        logger,
-        whitelist,
-        exclude_identities=exclude_identities,
-        ignore_seen=ignore_seen,
-    )
-
-    latest_target = min(LATEST_TARGET, config.max_papers)
-    relevance_target = min(RELEVANCE_TARGET, max(0, config.max_papers - latest_target))
-
-    latest = sorted(candidates, key=_latest_sort_key, reverse=True)[:latest_target]
-    latest_ids = {paper.identity for paper in latest}
-
-    relevance_pool = [paper for paper in candidates if paper.identity not in latest_ids]
-    relevance = sorted(relevance_pool, key=_ai_teaching_relevance_key, reverse=True)[:relevance_target]
-
-    selected = latest + relevance
-    selected_ids = {paper.identity for paper in selected}
-    if len(selected) < config.max_papers:
-        filler = [paper for paper in candidates if paper.identity not in selected_ids]
-        filler.sort(key=_ai_teaching_relevance_key, reverse=True)
-        selected.extend(filler[: config.max_papers - len(selected)])
-
-    logger.info(
-        "主日报混合筛选完成 input=%s kept=%s latest=%s relevance=%s selected=%s search_query_limit=%s strategy=2_latest_plus_3_ai_teaching_relevance",
-        len(papers),
-        len(candidates),
-        len(latest),
-        len(relevance),
-        len(selected),
-        DAILY_SEARCH_QUERY_LIMIT,
-    )
-    return selected[: config.max_papers]
-
-
-def _eligible_candidates(
-    papers: list[Paper],
-    config: AppConfig,
-    logger: logging.Logger,
-    whitelist: paper_filter.SsciWhitelist,
-    *,
-    exclude_identities: set[str] | None,
-    ignore_seen: bool,
-) -> list[Paper]:
-    candidates: list[Paper] = []
+    filtered: list[Paper] = []
     seen = set() if ignore_seen else paper_filter.load_seen_identities(config.seen_state_path)
     if exclude_identities:
         seen.update(exclude_identities)
 
     for paper in papers:
-        ok, score, reasons = paper_filter._score_paper(paper, whitelist, config.ssci_filter_mode)  # type: ignore[attr-defined]
+        ok, score, reasons = _prioritize_defined_scope(paper, whitelist, config.ssci_filter_mode)
         use_whitelist = config.ssci_filter_mode != "off" and whitelist.available
         paper.ssci_matched = whitelist.is_match(paper) if use_whitelist else False
         if paper.ssci_matched:
@@ -304,56 +161,19 @@ def _eligible_candidates(
         paper.filter_score = score
         paper.filter_reasons = reasons
         if ok and paper.identity not in seen:
-            candidates.append(paper)
+            filtered.append(paper)
 
-    if not candidates:
-        logger.warning("主日报混合筛选无候选，可能是SSCI白名单、主题规则或去重状态过严。")
-    return candidates
-
-
-def _latest_sort_key(paper: Paper) -> tuple[int, int, int, int]:
-    return (
-        paper.published_date.toordinal() if paper.published_date else 0,
-        paper_filter._quartile_rank(paper.quartile),  # type: ignore[attr-defined]
-        int(paper.ssci_matched),
-        paper.filter_score,
+    filtered.sort(key=_relevance_sort_key, reverse=True)
+    selected = filtered[: config.max_papers]
+    logger.info(
+        "AI专题相关度筛选完成 input=%s kept=%s selected=%s whitelist_available=%s mode=%s sort=relevance_first",
+        len(papers),
+        len(filtered),
+        len(selected),
+        whitelist.available,
+        config.ssci_filter_mode,
     )
-
-
-def _ai_teaching_relevance_key(paper: Paper) -> tuple[int, int, int, int, int, int, int, int]:
-    text = _paper_text(paper)
-    ai_hits = _count_hits(text, AI_TERMS)
-    teaching_hits = _count_hits(text, TEACHING_TERMS)
-    subject_hits = _count_hits(text, SUBJECT_TERMS)
-    teacher_literacy_hits = _count_hits(text, TEACHER_LITERACY_TERMS)
-    stage_hits = _count_hits(text, STAGE_TERMS)
-    ai_teaching_synergy = int(ai_hits > 0 and teaching_hits > 0)
-    subject_ai_synergy = int(ai_hits > 0 and subject_hits > 0)
-
-    relevance_score = (
-        ai_hits * 8
-        + teaching_hits * 7
-        + subject_hits * 6
-        + teacher_literacy_hits * 5
-        + stage_hits * 3
-        + ai_teaching_synergy * 25
-        + subject_ai_synergy * 20
-        + paper.filter_score
-    )
-    return (
-        relevance_score,
-        subject_ai_synergy,
-        ai_teaching_synergy,
-        teacher_literacy_hits,
-        stage_hits,
-        int(paper.ssci_matched),
-        paper_filter._quartile_rank(paper.quartile),  # type: ignore[attr-defined]
-        paper.published_date.toordinal() if paper.published_date else 0,
-    )
-
-
-def _count_hits(text: str, terms: tuple[str, ...]) -> int:
-    return sum(1 for term in terms if term in text)
+    return selected
 
 
 def _paper_text(paper: Paper) -> str:
@@ -366,3 +186,268 @@ def _paper_text(paper: Paper) -> str:
             " ".join(paper.keywords),
         ]
     ).lower()
+
+
+def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
+    return any(term in text for term in terms)
+
+
+def _has_ai_theme(text: str) -> bool:
+    patterns = [
+        r"\bartificial intelligence\b",
+        r"\bgenerative ai\b",
+        r"\bgenai\b",
+        r"\bchatgpt\b",
+        r"\blarge language model(s)?\b",
+        r"\bllm(s)?\b",
+        r"\bai\b",
+        r"\bai-assisted\b",
+        r"\bai supported\b",
+        r"\bintelligent tutor(ing|s)?\b",
+        r"\badaptive learning\b",
+        r"\blearning analytics\b",
+        r"\beducational data mining\b",
+        r"\bautomated feedback\b",
+    ]
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _has_preschool_primary_or_junior_stage(text: str) -> bool:
+    stage_terms = (
+        "preschool",
+        "pre-school",
+        "early childhood",
+        "kindergarten",
+        "primary education",
+        "primary school",
+        "elementary education",
+        "elementary school",
+        "basic education",
+        "compulsory education",
+        "k-12",
+        "k12",
+        "school education",
+        "school teacher",
+        "school teachers",
+        "school student",
+        "school students",
+        "junior high",
+        "middle school",
+        "lower secondary",
+        "children",
+        "pupils",
+    )
+    return _contains_any(text, stage_terms)
+
+
+def _has_teaching_related_theme(text: str) -> bool:
+    teaching_terms = (
+        "teaching",
+        "instruction",
+        "learning",
+        "classroom",
+        "lesson planning",
+        "instructional design",
+        "teaching design",
+        "curriculum",
+        "assessment",
+        "feedback",
+        "tutoring",
+        "adaptive learning",
+        "learning analytics",
+        "educational data mining",
+        "pedagogy",
+        "pedagogical",
+    )
+    return _contains_any(text, teaching_terms)
+
+
+def _has_ai_teaching_application(text: str) -> bool:
+    return _has_ai_theme(text) and _has_teaching_related_theme(text)
+
+
+def _has_subject_ai_theme(text: str) -> bool:
+    subject_terms = (
+        "mathematics",
+        "math",
+        "science",
+        "stem",
+        "language",
+        "english",
+        "efl",
+        "esl",
+        "reading",
+        "writing",
+        "literacy",
+        "chinese language",
+        "chinese writing",
+        "language arts",
+        "native language",
+        "first language",
+        "mother tongue",
+        "curriculum",
+        "subject teaching",
+        "disciplinary",
+    )
+    return _has_ai_theme(text) and _contains_any(text, subject_terms)
+
+
+def _has_teacher_literacy_theme(text: str) -> bool:
+    literacy_terms = (
+        "teacher digital literacy",
+        "teacher digital competence",
+        "teacher ai literacy",
+        "teacher artificial intelligence literacy",
+        "teacher intelligent literacy",
+        "teacher data literacy",
+        "teachers digital literacy",
+        "teachers digital competence",
+        "teachers ai literacy",
+        "teachers data literacy",
+        "digital literacy",
+        "digital competence",
+        "ai literacy",
+        "artificial intelligence literacy",
+        "intelligent literacy",
+        "data literacy",
+    )
+    teacher_terms = ("teacher", "teachers", "educator", "educators")
+    return _contains_any(text, literacy_terms) and _contains_any(text, teacher_terms)
+
+
+def _has_teacher_education_ai_integration(text: str) -> bool:
+    teacher_training_terms = (
+        "teacher education",
+        "preservice teacher",
+        "pre-service teacher",
+        "preservice teachers",
+        "pre-service teachers",
+        "in-service teacher",
+        "inservice teacher",
+        "in-service teachers",
+        "inservice teachers",
+        "teacher training",
+        "teacher professional development",
+        "professional development",
+        "initial teacher education",
+    )
+    return _has_ai_theme(text) and _contains_any(text, teacher_training_terms)
+
+
+def _has_digital_transformation_teacher_role(text: str) -> bool:
+    transformation_terms = (
+        "digital transformation",
+        "educational digital transformation",
+        "digitalization",
+        "digitalisation",
+        "digital education",
+        "technology integration",
+        "teaching reform",
+        "teaching change",
+        "pedagogical change",
+        "teacher role",
+        "teacher agency",
+        "teacher identity",
+    )
+    teacher_or_teaching_terms = ("teacher", "teachers", "teaching", "classroom", "school")
+    return _contains_any(text, transformation_terms) and _contains_any(text, teacher_or_teaching_terms)
+
+
+def _is_high_school_only(text: str) -> bool:
+    high_school_terms = ("high school", "senior high", "upper secondary")
+    lower_stage_terms = (
+        "middle school",
+        "junior high",
+        "lower secondary",
+        "primary",
+        "elementary",
+        "preschool",
+        "kindergarten",
+        "k-12",
+        "k12",
+        "basic education",
+        "compulsory education",
+    )
+    return _contains_any(text, high_school_terms) and not _contains_any(text, lower_stage_terms)
+
+
+def _can_relax_original_stage_gate(reasons: list[str], text: str) -> bool:
+    """Allow broad teaching or teacher-literacy papers blocked only by a missing stage term."""
+
+    if "no_preschool_or_basic_education_stage" not in reasons:
+        return False
+    if any(reason.startswith("excluded:") or reason == "not_in_ssci_whitelist" for reason in reasons):
+        return False
+    return (
+        _has_ai_teaching_application(text)
+        or _has_subject_ai_theme(text)
+        or _has_teacher_literacy_theme(text)
+        or _has_teacher_education_ai_integration(text)
+        or _has_digital_transformation_teacher_role(text)
+    )
+
+
+def _prioritize_defined_scope(paper: Paper, whitelist: paper_filter.SsciWhitelist, mode: str) -> tuple[bool, int, list[str]]:
+    text = _paper_text(paper)
+    ok, score, reasons = paper_filter._score_paper(paper, whitelist, mode)  # type: ignore[attr-defined]
+    if not ok and not _can_relax_original_stage_gate(reasons, text):
+        return ok, score, reasons
+    if not ok:
+        score = max(score, 0)
+        reasons = [reason for reason in reasons if reason != "no_preschool_or_basic_education_stage"]
+
+    stage_hit = _has_preschool_primary_or_junior_stage(text)
+    teaching_related = _has_teaching_related_theme(text)
+    ai_teaching = _has_ai_teaching_application(text)
+    subject_ai = _has_subject_ai_theme(text)
+    teacher_literacy = _has_teacher_literacy_theme(text)
+    teacher_education_ai = _has_teacher_education_ai_integration(text)
+    digital_transform = _has_digital_transformation_teacher_role(text)
+
+    if _is_high_school_only(text) and not (teacher_education_ai or teacher_literacy or ai_teaching):
+        return False, score - 20, reasons + ["scope:high_school_only"]
+
+    topic_hits: list[str] = []
+    if subject_ai:
+        score += 50
+        topic_hits.append("subject_ai_integration")
+    if ai_teaching:
+        score += 44
+        topic_hits.append("ai_teaching_application")
+    if teacher_literacy:
+        score += 40
+        topic_hits.append("teacher_digital_ai_data_literacy")
+    if teacher_education_ai:
+        score += 38
+        topic_hits.append("teacher_education_ai_integration")
+    if digital_transform:
+        score += 30
+        topic_hits.append("digital_transformation_teacher_role")
+    if teaching_related:
+        score += 16
+        topic_hits.append("teaching_related")
+    if stage_hit:
+        score += 20
+        topic_hits.append("preschool_primary_or_junior_stage")
+
+    if not topic_hits:
+        return False, score, reasons + ["scope:no_teaching_or_teacher_literacy_topic"]
+
+    return True, score, reasons + [f"defined_scope:{hit}" for hit in topic_hits]
+
+
+def _relevance_sort_key(paper: Paper) -> tuple[int, int, int, int, int, int, int, int, int]:
+    """Rank papers mainly by relevance; publication date is only the final tie-breaker."""
+
+    text = _paper_text(paper)
+    return (
+        paper.filter_score,
+        int(_has_subject_ai_theme(text)),
+        int(_has_ai_teaching_application(text)),
+        int(_has_teacher_literacy_theme(text)),
+        int(_has_teacher_education_ai_integration(text)),
+        int(_has_digital_transformation_teacher_role(text)),
+        int(_has_preschool_primary_or_junior_stage(text)),
+        int(paper.ssci_matched),
+        paper.published_date.toordinal() if paper.published_date else 0,
+    )
